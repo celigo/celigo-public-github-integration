@@ -1,0 +1,85 @@
+name: continuous integration Workflow
+
+on:
+  repository_dispatch:
+    types: [continuous-integration-event]
+jobs:
+  process-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Download Snapshot from S3 signedURL
+      run: |
+        curl -o snapshot.zip '${{ github.event.client_payload.signedURL }}'
+
+    - name: Unzip Snapshot
+      run: unzip -o snapshot.zip -d new_integration-package
+      
+    - name: Clean up existing zip files
+      run: |
+          echo "Removing existing zip files..."
+          rm -f *.zip || true  # The || true ensures that this command doesn't fail the workflow if no zip files are found
+
+    - name: Set Git Configurations
+      run: |
+        git config --global user.email "you.zouhairi@gmail.com"
+        git config --global user.name "YussefZ"
+
+    - name: Pull Latest Changes
+      run: |
+        git pull origin main
+        
+    - name: Replace Snapshot Directory
+      run: |
+        rm -rf integration-package || true # Remove the old snapshot directory if it exists, ignoring errors if it does not
+        mv new_integration-package integration-package # Rename the newly unzipped snapshot directory
+
+    - name: Create New Branch and Push
+      env:
+        REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+      run: |
+        git checkout -b new-branch-${{ github.event.client_payload.id }}
+        git add .
+        git commit -m "Update snapshot with new changes"
+        echo "Setting remote URL with PAT..."
+        git remote set-url origin https://x-access-token:${REPO_ACCESS_TOKEN}@github.com/Yussefz/celigo-public-github-integration.git
+        echo "Attempting to push to the repository..."
+        git push --set-upstream origin new-branch-${{ github.event.client_payload.id }}  
+        
+    - name: Install GitHub CLI
+      run: |
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt update
+        sudo apt install gh
+
+    - name: Create Pull Request
+      env:
+        GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+      run: |
+        gh pr create --base main --head new-branch-${{ github.event.client_payload.id }} --title "Merge new integration-package" --body "Automated integration-package merge"
+
+    - name: Auto-Merge Pull Request and Delete Branch
+      env:
+        GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+      run: |
+        set -x  # Enable debugging
+        PR_LIST_JSON=$(gh pr list --base main --head new-branch-${{ github.event.client_payload.id }} --json number)
+        echo "PR List JSON: $PR_LIST_JSON"
+        PR_NUMBER=$(echo "$PR_LIST_JSON" | jq -r '.[0].number')
+        echo "PR Number: $PR_NUMBER"
+        if [ ! -z "$PR_NUMBER" ]; then
+          gh pr merge "$PR_NUMBER" --auto --merge
+          echo "PR merged successfully, deleting the branch..."
+          git push origin --delete new-branch-${{ github.event.client_payload.id }}
+        else
+          echo "PR not found or cannot be merged automatically."
+        fi
+        echo "After conditional block"
+
+
+
+
+

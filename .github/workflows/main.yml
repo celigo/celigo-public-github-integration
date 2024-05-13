@@ -24,7 +24,7 @@ jobs:
 
     - name: Set Git Configurations
       run: |
-        git config --global user.email "you.zouhairi@gmail.com"
+        git config --global user.email "youremailaddress@gmail.com"
         git config --global user.name "YussefZ"
 
     - name: Pull Latest Changes
